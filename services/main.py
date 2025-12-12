@@ -1,15 +1,14 @@
-# main.py
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-import yt_dlp
+from pytubefix import YouTube
+from pytubefix.cli import on_progress
 import os
 import uuid
 import threading
-from typing import Dict, Optional
+from typing import Dict
 import time
-import glob
 
 app = FastAPI()
 
@@ -34,85 +33,154 @@ class DownloadRequest(BaseModel):
     url: str
 
 
-class ProgressHook:
-    def __init__(self, video_id: str):
-        self.video_id = video_id
+def format_duration(seconds):
+    """Форматує тривалість у читабельний формат"""
+    if not seconds:
+        return "Unknown"
+    
+    hours = int(seconds // 3600)
+    minutes = int((seconds % 3600) // 60)
+    secs = int(seconds % 60)
+    
+    if hours > 0:
+        return f"{hours}:{minutes:02d}:{secs:02d}"
+    else:
+        return f"{minutes}:{secs:02d}"
 
-    def __call__(self, d):
-        if d['status'] == 'downloading':
-            try:
-                # Розрахунок прогресу
-                if 'total_bytes' in d:
-                    total = d['total_bytes']
-                    downloaded = d['downloaded_bytes']
-                    progress = int((downloaded / total) * 100)
-                elif 'total_bytes_estimate' in d:
-                    total = d['total_bytes_estimate']
-                    downloaded = d['downloaded_bytes']
-                    progress = int((downloaded / total) * 100)
-                else:
-                    progress = 0
 
-                downloads[self.video_id]['progress'] = min(progress, 99)
-                downloads[self.video_id]['status'] = 'downloading'
-                print(f"[{self.video_id}] Progress: {progress}%")
-            except Exception as e:
-                print(f"Помилка оновлення прогресу: {e}")
-
-        elif d['status'] == 'finished':
-            downloads[self.video_id]['progress'] = 100
-            downloads[self.video_id]['status'] = 'processing'
-            print(f"[{self.video_id}] Download finished, processing...")
+def progress_callback(stream, chunk, bytes_remaining):
+    """Callback для відстеження прогресу"""
+    video_id = getattr(stream, '_video_id', None)
+    if not video_id or video_id not in downloads:
+        return
+    
+    try:
+        total_size = stream.filesize
+        bytes_downloaded = total_size - bytes_remaining
+        progress = int((bytes_downloaded / total_size) * 100)
+        
+        downloads[video_id]['progress'] = min(progress, 99)
+        downloads[video_id]['status'] = 'downloading'
+        downloads[video_id]['downloaded_bytes'] = bytes_downloaded
+        
+        print(f"[{video_id}] Progress: {progress}%")
+    except Exception as e:
+        print(f"Помилка оновлення прогресу: {e}")
 
 
 def download_video(video_id: str, url: str):
     try:
-        # Шаблон для збереження файлу
-        output_template = os.path.join(DOWNLOAD_FOLDER, f"{video_id}.%(ext)s")
-        
-        ydl_opts = {
-            'format': 'best[ext=mp4]/bestvideo[ext=mp4]+bestaudio[ext=m4a]/best',
-            'outtmpl': output_template,
-            'progress_hooks': [ProgressHook(video_id)],
-            'no_warnings': True,
-            'quiet': False,
-            'no_color': True,
-            'merge_output_format': 'mp4',  # Завжди конвертувати в mp4
-        }
-
         print(f"[{video_id}] Starting download from: {url}")
         
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=True)
+        # Створюємо об'єкт YouTube
+        yt = YouTube(url, on_progress_callback=progress_callback)
+        
+        # Додаємо video_id до потоку для callback
+        for stream in yt.streams:
+            stream._video_id = video_id
+        
+        # Отримуємо інформацію про відео
+        downloads[video_id]['title'] = yt.title
+        downloads[video_id]['duration'] = yt.length
+        downloads[video_id]['duration_string'] = format_duration(yt.length)
+        downloads[video_id]['thumbnail'] = yt.thumbnail_url
+        downloads[video_id]['uploader'] = yt.author
+        downloads[video_id]['view_count'] = yt.views
+        
+        print(f"[{video_id}] Title: {yt.title}")
+        print(f"[{video_id}] Duration: {format_duration(yt.length)}")
+        
+        # Вибираємо найвищу якість (adaptive - окремо відео і аудіо)
+        video_stream = yt.streams.filter(adaptive=True, file_extension='mp4', only_video=True).order_by('resolution').desc().first()
+        audio_stream = yt.streams.filter(adaptive=True, file_extension='mp4', only_audio=True).order_by('abr').desc().first()
+        
+        if not video_stream or not audio_stream:
+            # Fallback на progressive (нижча якість, але відео+аудіо разом)
+            stream = yt.streams.filter(progressive=True, file_extension='mp4').order_by('resolution').desc().first()
+            if not stream:
+                raise Exception("Не знайдено доступних MP4 форматів")
             
-            # Отримуємо фактичне ім'я файлу
-            filename = ydl.prepare_filename(info)
+            print(f"[{video_id}] Selected progressive stream: {stream.resolution} - {stream.mime_type}")
             
-            # Якщо файл має інше розширення, шукаємо правильний файл
-            if not os.path.exists(filename):
-                # Шукаємо файл з таким же video_id
-                possible_files = glob.glob(os.path.join(DOWNLOAD_FOLDER, f"{video_id}.*"))
-                if possible_files:
-                    filename = possible_files[0]
-                    print(f"[{video_id}] Found file: {filename}")
+            downloads[video_id]['status'] = 'downloading'
             
-            if os.path.exists(filename):
-                downloads[video_id]['status'] = 'completed'
-                downloads[video_id]['progress'] = 100
-                downloads[video_id]['filename'] = filename
-                downloads[video_id]['title'] = info.get('title', 'video')
+            filename = f"{video_id}.mp4"
+            output_path = stream.download(
+                output_path=DOWNLOAD_FOLDER,
+                filename=filename
+            )
+        else:
+            print(f"[{video_id}] Selected video: {video_stream.resolution} - {video_stream.mime_type}")
+            print(f"[{video_id}] Selected audio: {audio_stream.abr} - {audio_stream.mime_type}")
+            
+            downloads[video_id]['status'] = 'downloading'
+            
+            # Завантажуємо відео
+            video_filename = f"{video_id}_video.mp4"
+            video_path = video_stream.download(
+                output_path=DOWNLOAD_FOLDER,
+                filename=video_filename
+            )
+            
+            print(f"[{video_id}] Video downloaded, downloading audio...")
+            
+            # Завантажуємо аудіо
+            audio_filename = f"{video_id}_audio.mp4"
+            audio_path = audio_stream.download(
+                output_path=DOWNLOAD_FOLDER,
+                filename=audio_filename
+            )
+            
+            print(f"[{video_id}] Audio downloaded, merging...")
+            downloads[video_id]['status'] = 'processing'
+            
+            # Об'єднуємо за допомогою ffmpeg-python
+            import ffmpeg
+            output_path = os.path.join(DOWNLOAD_FOLDER, f"{video_id}.mp4")
+            
+            try:
+                # Об'єднуємо відео і аудіо
+                video_input = ffmpeg.input(video_path)
+                audio_input = ffmpeg.input(audio_path)
                 
-                print(f"[{video_id}] Download completed: {filename}")
-                print(f"[{video_id}] File size: {os.path.getsize(filename)} bytes")
+                ffmpeg.output(
+                    video_input, audio_input, output_path,
+                    vcodec='copy',  # Копіюємо відео без перекодування
+                    acodec='aac',   # Кодуємо аудіо в AAC
+                    strict='experimental'
+                ).overwrite_output().run(capture_stdout=True, capture_stderr=True)
                 
-                # Видалення через 1 годину
-                threading.Timer(3600, lambda: cleanup_video(video_id)).start()
-            else:
-                raise Exception(f"File not found after download: {filename}")
-
+                # Видаляємо тимчасові файли
+                os.remove(video_path)
+                os.remove(audio_path)
+                
+                print(f"[{video_id}] Merge completed")
+            except Exception as e:
+                # Якщо щось пішло не так, використовуємо тільки відео
+                print(f"[{video_id}] Merge failed, using video only: {e}")
+                os.rename(video_path, output_path)
+                if os.path.exists(audio_path):
+                    os.remove(audio_path)
+        
+        print(f"[{video_id}] Download completed: {output_path}")
+        
+        if os.path.exists(output_path):
+            downloads[video_id]['status'] = 'completed'
+            downloads[video_id]['progress'] = 100
+            downloads[video_id]['filename'] = output_path
+            downloads[video_id]['filesize'] = os.path.getsize(output_path)
+            
+            print(f"[{video_id}] File size: {downloads[video_id]['filesize']} bytes")
+            
+            # Видалення через 1 годину
+            threading.Timer(3600, lambda: cleanup_video(video_id)).start()
+        else:
+            raise Exception(f"File not found after download: {output_path}")
+            
     except Exception as e:
         downloads[video_id]['status'] = 'error'
         downloads[video_id]['error'] = str(e)
+        downloads[video_id]['progress'] = 0
         print(f"[{video_id}] ERROR: {e}")
 
 
@@ -144,9 +212,18 @@ async def start_download(request: DownloadRequest):
         downloads[video_id] = {
             'url': request.url,
             'progress': 0,
-            'status': 'downloading',
+            'status': 'fetching_info',
             'filename': None,
-            'title': None,
+            'title': 'Fetching video info...',
+            'duration': 0,
+            'duration_string': '',
+            'thumbnail': '',
+            'uploader': '',
+            'view_count': 0,
+            'filesize': 0,
+            'downloaded_bytes': 0,
+            'speed': 0,
+            'eta': 0,
             'error': None,
             'removed': False,
             'created_at': time.time()
@@ -161,6 +238,7 @@ async def start_download(request: DownloadRequest):
         thread.start()
         
         return {
+            "success": True,
             "id": video_id,
             "message": "Завантаження розпочато"
         }
@@ -181,6 +259,16 @@ async def get_progress(video_id: str):
     response = {
         "progress": download_info['progress'],
         "status": download_info['status'],
+        "title": download_info.get('title', ''),
+        "duration": download_info.get('duration', 0),
+        "duration_string": download_info.get('duration_string', ''),
+        "thumbnail": download_info.get('thumbnail', ''),
+        "uploader": download_info.get('uploader', ''),
+        "view_count": download_info.get('view_count', 0),
+        "filesize": download_info.get('filesize', 0),
+        "downloaded_bytes": download_info.get('downloaded_bytes', 0),
+        "speed": download_info.get('speed', 0),
+        "eta": download_info.get('eta', 0),
         "error": download_info.get('error'),
         "removed": download_info.get('removed', False)
     }
@@ -209,21 +297,14 @@ async def download_file(video_id: str):
     
     filename = download_info.get('filename')
     
-    print(f"[{video_id}] Filename from dict: {filename}")
-    
     if not filename or not os.path.exists(filename):
-        print(f"[{video_id}] ERROR: File not found or doesn't exist")
-        print(f"[{video_id}] Files in download folder:")
-        for f in os.listdir(DOWNLOAD_FOLDER):
-            print(f"  - {f}")
+        print(f"[{video_id}] ERROR: File not found")
         raise HTTPException(status_code=404, detail="Файл не знайдено")
     
     # Визначаємо ім'я файлу для завантаження
     title = download_info.get('title', 'video')
-    # Очищаємо ім'я від небезпечних символів
     safe_title = "".join(c for c in title if c.isalnum() or c in (' ', '-', '_')).strip()
-    ext = os.path.splitext(filename)[1]
-    download_name = f"{safe_title}{ext}"
+    download_name = f"{safe_title}.mp4"
     
     print(f"[{video_id}] Sending file: {filename} as {download_name}")
     
@@ -236,7 +317,7 @@ async def download_file(video_id: str):
 
 @app.get("/")
 async def root():
-    active = len([d for d in downloads.values() if d['status'] == 'downloading'])
+    active = len([d for d in downloads.values() if d['status'] in ['downloading', 'fetching_info', 'processing']])
     completed = len([d for d in downloads.values() if d['status'] == 'completed'])
     
     return {
@@ -247,22 +328,6 @@ async def root():
         "total_downloads": len(downloads),
         "download_folder": DOWNLOAD_FOLDER
     }
-
-
-@app.get("/debug/{video_id}")
-async def debug_download(video_id: str):
-    """Debug endpoint для перевірки статусу"""
-    if video_id not in downloads:
-        return {"error": "Not found"}
-    
-    info = downloads[video_id].copy()
-    
-    if info.get('filename'):
-        info['file_exists'] = os.path.exists(info['filename'])
-        if info['file_exists']:
-            info['file_size'] = os.path.getsize(info['filename'])
-    
-    return info
 
 
 if __name__ == "__main__":

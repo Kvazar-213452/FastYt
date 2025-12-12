@@ -30,9 +30,19 @@ export async function GET(
       );
     }
 
+    // Передаємо всі дані з Python API
     return NextResponse.json({
       progress: data.progress,
       status: data.status,
+      title: data.title,
+      duration: data.duration,
+      duration_string: data.duration_string,
+      thumbnail: data.thumbnail,
+      uploader: data.uploader,
+      view_count: data.view_count,
+      filesize: data.filesize,
+      speed: data.speed,
+      eta: data.eta,
       downloadUrl: data.download_url,
       error: data.error,
       removed: data.removed,
