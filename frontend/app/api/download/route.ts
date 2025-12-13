@@ -1,11 +1,10 @@
-// app/api/download/route.ts
 import { NextRequest, NextResponse } from 'next/server';
 
 const PYTHON_API_URL = process.env.PYTHON_API_URL || 'http://localhost:8000';
 
 export async function POST(request: NextRequest) {
   try {
-    const { url } = await request.json();
+    const { url, settings } = await request.json();
 
     if (!url || !url.trim()) {
       return NextResponse.json(
@@ -14,13 +13,13 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Відправка запиту до Python мікросервісу
+    // Відправка запиту до Python мікросервісу з налаштуваннями
     const response = await fetch(`${PYTHON_API_URL}/download`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ url }),
+      body: JSON.stringify({ url, settings }),
     });
 
     const data = await response.json();

@@ -4,8 +4,6 @@ import { Download, Youtube, Film, Facebook, Moon, Sun, Menu, X } from 'lucide-re
 import { useState } from 'react';
 import { useThemeLanguage } from '@/lib/hooks/useThemeLanguage';
 
-import '@/style/header.css';
-
 export default function Header() {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const { isDarkMode, toggleDarkMode } = useThemeLanguage();
@@ -23,7 +21,7 @@ export default function Header() {
       <div className="header-content">
         <div className="logo-container">
           <div className="logo-icon">
-            <Download size={22} color="white" />
+            <Download size={22} />
           </div>
           <h1 className="logo-text">FastYt</h1>
         </div>
