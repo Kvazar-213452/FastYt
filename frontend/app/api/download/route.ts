@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-
-const PYTHON_API_URL = process.env.PYTHON_API_URL || 'http://localhost:8000';
+import CONFIG from "@/lib/config";
 
 export async function POST(request: NextRequest) {
   try {
@@ -8,13 +7,12 @@ export async function POST(request: NextRequest) {
 
     if (!url || !url.trim()) {
       return NextResponse.json(
-        { success: false, error: 'URL відсутня' },
+        { success: false, error: 'URL is missing' },
         { status: 400 }
       );
     }
 
-    // Відправка запиту до Python мікросервісу з налаштуваннями
-    const response = await fetch(`${PYTHON_API_URL}/download`, {
+    const response = await fetch(`${CONFIG.MAIN_SERVER}download`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -26,7 +24,7 @@ export async function POST(request: NextRequest) {
 
     if (!response.ok) {
       return NextResponse.json(
-        { success: false, error: data.detail || 'Помилка завантаження' },
+        { success: false, error: data.detail || 'Download error' },
         { status: response.status }
       );
     }
@@ -37,9 +35,9 @@ export async function POST(request: NextRequest) {
       message: data.message,
     });
   } catch (error) {
-    console.error('Помилка в API /download:', error);
+    console.error('Error in API /download:', error);
     return NextResponse.json(
-      { success: false, error: 'Помилка сервера' },
+      { success: false, error: 'Server error' },
       { status: 500 }
     );
   }
