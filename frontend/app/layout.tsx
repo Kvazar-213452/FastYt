@@ -1,10 +1,11 @@
 import type { Metadata } from "next";
-import Head from "next/head";
+import Script from "next/script";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import ThemeProvider from "@/components/ThemeProvider";
 import NotificationProvider from "@/components/notification/NotificationProvider";
 import VideoDownloader from "./downloaders/youtube/page";
+import GoogleAnalytics from "@/components/GoogleAnalytics";
 import "@/style/main.css";
 
 export const metadata: Metadata = {
@@ -122,22 +123,45 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
 
   return (
     <html lang="en">
-      <Head>
-        <script
-          type="application/ld+json"
-          dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
-        />
+      <head>
         <link rel="icon" href="/favicon.ico" sizes="any" />
         <link rel="icon" href="/icon.svg" type="image/svg+xml" />
         <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
         <link rel="manifest" href="/manifest.json" />
         <meta name="theme-color" content="#000000" />
-      </Head>
+        <GoogleAnalytics></GoogleAnalytics>
+      </head>
       <body>
+         <GoogleAnalytics></GoogleAnalytics>
+        {/* Google Analytics */}
+        <Script
+          strategy="afterInteractive"
+          src="https://www.googletagmanager.com/gtag/js?id=G-YFH9C29CL2"
+        />
+        <Script
+          id="google-analytics"
+          strategy="afterInteractive"
+          dangerouslySetInnerHTML={{
+            __html: `
+              window.dataLayer = window.dataLayer || [];
+              function gtag(){dataLayer.push(arguments);}
+              gtag('js', new Date());
+              gtag('config', 'G-YFH9C29CL2');
+            `,
+          }}
+        />
+        
+        {/* JSON-LD Schema */}
+        <Script
+          id="json-ld"
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+        />
+        
         <ThemeProvider>
           <NotificationProvider>
             <Header />
-            <VideoDownloader/>
+            <VideoDownloader />
             <Footer />
           </NotificationProvider>
         </ThemeProvider>
