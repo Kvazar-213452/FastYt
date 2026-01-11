@@ -32,7 +32,7 @@ The application allows users to download videos from YouTube and other supported
 ### Frontend
 - Next.js
 - React
-- TypeScript (optional)
+- TypeScript
 
 ### Backend
 - Python
