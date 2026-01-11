@@ -53,7 +53,6 @@ def format_duration(seconds):
 
 
 def progress_hook(d, video_id):
-    """Hook для відстеження прогресу yt-dlp"""
     if video_id not in downloads:
         return
     
@@ -67,8 +66,7 @@ def progress_hook(d, video_id):
                 downloads[video_id]['progress'] = min(progress, 99)
                 downloads[video_id]['downloaded_bytes'] = downloaded
                 downloads[video_id]['filesize'] = total
-                
-                # Швидкість та ETA
+
                 speed = d.get('speed', 0)
                 eta = d.get('eta', 0)
                 if speed:
@@ -96,29 +94,24 @@ def download_video(video_id: str, url: str, settings: Optional[DownloadSettings]
         downloads[video_id]['start_time'] = time.time()
         downloads[video_id]['status'] = 'fetching_info'
         
-        # Налаштування yt-dlp з обходом ботозахисту
         ydl_opts = {
             'outtmpl': os.path.join(DOWNLOAD_FOLDER, f'{video_id}.%(ext)s'),
             'progress_hooks': [lambda d: progress_hook(d, video_id)],
             'quiet': False,
             'no_warnings': False,
-            # Використовуємо Android клієнт для обходу захисту
             'extractor_args': {
                 'youtube': {
                     'player_client': ['android_creator'],
                     'player_skip': ['webpage'],
                 }
             },
-            # Додаткові налаштування для обходу
             'socket_timeout': 30,
         }
         
-        # ЗАВЖДИ використовуємо cookies якщо файл існує
         if os.path.exists(COOKIES_FILE):
             ydl_opts['cookiefile'] = COOKIES_FILE
             print(f"[{video_id}] ✓ Using cookies from: {COOKIES_FILE}")
             
-            # Перевірка вмісту файлу
             try:
                 with open(COOKIES_FILE, 'r') as f:
                     cookie_content = f.read()
@@ -130,7 +123,6 @@ def download_video(video_id: str, url: str, settings: Optional[DownloadSettings]
             print(f"[{video_id}] ✗ No cookies file found at: {COOKIES_FILE}")
             print(f"[{video_id}] Trying without cookies (may fail)...")
         
-        # Налаштування формату
         if settings.audioOnly or settings.format == 'mp3':
             ydl_opts['format'] = 'bestaudio/best'
             if settings.format == 'mp3':
@@ -140,7 +132,6 @@ def download_video(video_id: str, url: str, settings: Optional[DownloadSettings]
                     'preferredquality': '192',
                 }]
         else:
-            # Вибір якості відео
             quality_map = {
                 'highest': 'bestvideo+bestaudio/best',
                 'high': 'bestvideo[height<=1080]+bestaudio/best[height<=1080]',
@@ -148,21 +139,17 @@ def download_video(video_id: str, url: str, settings: Optional[DownloadSettings]
                 'low': 'bestvideo[height<=480]+bestaudio/best[height<=480]'
             }
             ydl_opts['format'] = quality_map.get(settings.quality, 'bestvideo+bestaudio/best')
-            
-            # Налаштування для WebM
+
             if settings.format == 'webm':
                 if settings.videoCodec == 'vp9':
                     ydl_opts['format'] = 'bestvideo[ext=webm][vcodec^=vp9]+bestaudio[ext=webm]/best[ext=webm]'
                 ydl_opts['merge_output_format'] = 'webm'
             else:
                 ydl_opts['merge_output_format'] = 'mp4'
-        
-        # Завантажуємо відео
+
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            # Спочатку отримуємо інформацію
             info = ydl.extract_info(url, download=False)
             
-            # Зберігаємо метадані
             downloads[video_id]['title'] = info.get('title', 'Unknown')
             downloads[video_id]['duration'] = info.get('duration', 0)
             downloads[video_id]['duration_string'] = format_duration(info.get('duration', 0))
@@ -172,16 +159,13 @@ def download_video(video_id: str, url: str, settings: Optional[DownloadSettings]
             
             print(f"[{video_id}] Title: {info.get('title')}")
             print(f"[{video_id}] Duration: {format_duration(info.get('duration', 0))}")
-            
-            # Тепер завантажуємо
+
             downloads[video_id]['status'] = 'downloading'
             ydl.download([url])
         
-        # Знаходимо завантажений файл
         file_extension = 'mp3' if settings.format == 'mp3' else settings.format
         expected_path = os.path.join(DOWNLOAD_FOLDER, f'{video_id}.{file_extension}')
         
-        # Перевіряємо всі можливі розширення
         possible_extensions = [file_extension, 'mp4', 'webm', 'mkv', 'm4a']
         output_path = None
         
@@ -202,7 +186,6 @@ def download_video(video_id: str, url: str, settings: Optional[DownloadSettings]
         downloads[video_id]['filesize'] = os.path.getsize(output_path)
         downloads[video_id]['format'] = file_extension
         
-        # Видалення через 1 годину
         threading.Timer(3600, lambda: cleanup_video(video_id)).start()
         
     except Exception as e:
@@ -213,7 +196,6 @@ def download_video(video_id: str, url: str, settings: Optional[DownloadSettings]
 
 
 def cleanup_video(video_id: str):
-    """Видалення відео"""
     if video_id in downloads:
         filename = downloads[video_id].get('filename')
         if filename and os.path.exists(filename):
@@ -229,7 +211,6 @@ def cleanup_video(video_id: str):
 
 @app.post("/upload-cookies")
 async def upload_cookies(file: UploadFile = File(...)):
-    """Завантаження cookies"""
     try:
         if not file.filename.endswith('.txt'):
             raise HTTPException(status_code=400, detail="Тільки .txt файли")
@@ -251,7 +232,6 @@ async def upload_cookies(file: UploadFile = File(...)):
 
 @app.delete("/cookies")
 async def delete_cookies():
-    """Видалення cookies"""
     try:
         if os.path.exists(COOKIES_FILE):
             os.remove(COOKIES_FILE)
@@ -263,20 +243,17 @@ async def delete_cookies():
 
 @app.get("/cookies/status")
 async def cookies_status():
-    """Статус cookies"""
     exists = os.path.exists(COOKIES_FILE)
     
     if exists:
         size = os.path.getsize(COOKIES_FILE)
         
-        # Читаємо та аналізуємо cookies
         try:
             with open(COOKIES_FILE, 'r') as f:
                 content = f.read()
                 lines = content.split('\n')
                 cookie_lines = [line for line in lines if line.strip() and not line.startswith('#')]
                 
-                # Перевіряємо важливі cookies
                 has_sid = any('SID' in line for line in cookie_lines)
                 has_hsid = any('HSID' in line for line in cookie_lines)
                 has_visitor = any('VISITOR' in line for line in cookie_lines)
@@ -312,7 +289,6 @@ async def cookies_status():
 
 @app.post("/download")
 async def start_download(request: DownloadRequest):
-    """Початок завантаження"""
     try:
         video_id = str(uuid.uuid4())
         
@@ -358,7 +334,6 @@ async def start_download(request: DownloadRequest):
 
 @app.get("/progress/{video_id}")
 async def get_progress(video_id: str):
-    """Прогрес завантаження"""
     if video_id not in downloads:
         raise HTTPException(status_code=404, detail="Не знайдено")
     
@@ -390,7 +365,6 @@ async def get_progress(video_id: str):
 
 @app.get("/file/{video_id}")
 async def download_file(video_id: str):
-    """Завантаження файлу"""
     if video_id not in downloads:
         raise HTTPException(status_code=404, detail="Не знайдено")
     
@@ -428,15 +402,13 @@ async def root():
     active = len([d for d in downloads.values() if d['status'] in ['downloading', 'fetching_info', 'processing']])
     completed = len([d for d in downloads.values() if d['status'] == 'completed'])
     
-    # Перевірка версії yt-dlp
     try:
         import subprocess
         result = subprocess.run(['yt-dlp', '--version'], capture_output=True, text=True)
         ytdlp_version = result.stdout.strip()
     except:
         ytdlp_version = "unknown"
-    
-    # Перевірка cookies
+
     cookies_info = "Not loaded"
     if os.path.exists(COOKIES_FILE):
         try:
@@ -462,7 +434,6 @@ async def root():
 
 @app.get("/update-ytdlp")
 async def update_ytdlp():
-    """Оновити yt-dlp до останньої версії"""
     try:
         import subprocess
         result = subprocess.run(
@@ -484,5 +455,5 @@ if __name__ == "__main__":
     print(f"Download folder: {DOWNLOAD_FOLDER}")
     print(f"Using yt-dlp for downloads")
     if os.path.exists(COOKIES_FILE):
-        print("✓ Cookies loaded")
+        print("Cookies loaded")
     uvicorn.run(app, host="0.0.0.0", port=20459)

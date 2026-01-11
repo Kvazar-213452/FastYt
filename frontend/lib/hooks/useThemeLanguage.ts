@@ -12,9 +12,8 @@ class ThemeLanguageManager {
     return this.instance;
   }
 
-  // видаляємо прямий доступ до localStorage тут
   isDarkMode(): boolean {
-    return false; // default, actual value встановлюється у useEffect
+    return false;
   }
 
   setDarkMode(isDark: boolean): void {
@@ -39,7 +38,7 @@ class ThemeLanguageManager {
   }
 
   getCurrentLanguage(): string {
-    return "EN"; // default
+    return "EN";
   }
 
   setLanguage(lang: string): void {
@@ -68,13 +67,11 @@ class ThemeLanguageManager {
 
 const themeLanguageManager = ThemeLanguageManager.getInstance();
 
-// hook
 export function useThemeLanguage() {
   const [isDarkMode, setIsDarkMode] = useState(false);
   const [currentLang, setCurrentLang] = useState("EN");
 
   useEffect(() => {
-    // читаємо localStorage тільки на клієнті
     const savedTheme = localStorage.getItem("theme");
     const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
     const darkMode = savedTheme ? savedTheme === "dark" : prefersDark;
@@ -84,7 +81,7 @@ export function useThemeLanguage() {
     setIsDarkMode(darkMode);
     setCurrentLang(savedLang);
 
-    themeLanguageManager.setDarkMode(darkMode); // застосовуємо клас на body
+    themeLanguageManager.setDarkMode(darkMode);
     themeLanguageManager.setLanguage(savedLang);
 
     const unsubscribeTheme = themeLanguageManager.onThemeChange(setIsDarkMode);
